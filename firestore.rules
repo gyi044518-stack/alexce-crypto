@@ -1,0 +1,79 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // A customer can view only their own account. They may create their
+    // first zero-balance profile, but only an administrator can alter money,
+    // commissions, or VIP status.
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.balance == 0
+        && request.resource.data.totalCommission == 0
+        && request.resource.data.vipLevel == null
+        && request.resource.data.pendingVip == null;
+      allow update, delete: if false;
+    }
+
+    // Customers submit proof of payment; they cannot approve or modify it.
+    match /vipPurchaseRequests/{requestId} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == "pending";
+      allow read: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Each customer has a private support conversation. Administrators using
+    // Firebase Admin tools can read and reply to any conversation.
+    match /supportMessages/{messageId} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.sender == "user";
+      allow read: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Users can record one completed check-in for their own account. Only an
+    // administrator can credit balances in the protected user document.
+    match /dailyWork/{workId} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == "completed"
+        && workId == request.auth.uid + "_" + request.resource.data.dayKey;
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /dailyActivity/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.userId == userId;
+      allow delete: if false;
+    }
+
+    // Private, non-financial messages shown on the user's own dashboard.
+    match /dailyNotifications/{notificationId} {
+      allow create, update: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && notificationId == request.auth.uid + "_" + request.resource.data.dayKey;
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Community chat messages - public within authenticated users. Images are stored
+    // in Firebase Storage; Firestore holds metadata and download URLs.
+    match /communityMessages/{messageId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && ((request.resource.data.text is string) || (request.resource.data.imageUrl is string))
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}
