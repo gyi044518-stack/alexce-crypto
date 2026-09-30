@@ -178,7 +178,8 @@ function AlignedCryptoChart({ symbol, interval, darkMode, currentPrice, entryPri
     return { open, close, high: Math.max(open, close) * 1.002, low: Math.min(open, close) * 0.998 };
   });
   const chartCandles = candles.length ? candles : fallbackCandles;
-  const values = chartCandles.flatMap((candle) => [candle.high, candle.low]).concat([currentPrice || 0, entryPrice || 0]);
+  const values = chartCandles.flatMap((candle) => [candle.high, candle.low])
+    .concat(currentPrice > 0 ? [currentPrice] : [], entryPrice > 0 ? [entryPrice] : []);
   const minimum = Math.min(...values);
   const maximum = Math.max(...values);
   const padding = Math.max((maximum - minimum) * 0.08, (currentPrice || 1) * 0.001);
