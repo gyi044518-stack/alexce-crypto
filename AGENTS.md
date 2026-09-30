@@ -27,6 +27,13 @@ This file provides concise guidance for AI coding agents working on this reposit
 - **No secrets in repo**: Never add credentials to source files; use env or secret stores.
 - **Linting**: Run `npm run lint` before committing.
 
+**Performance note**
+
+- Tailwind CSS is compiled at build time via PostCSS (see `postcss.config.js`, `tailwind.config.js`).
+  The `@tailwind` directives live in BOTH `index.css` (root) and `src/index.css`.
+  `src/main.jsx` imports `../index.css` (root), so the root file is the one actually loaded.
+  Never re-add the `cdn.tailwindcss.com` Play CDN to `index.html` — it was the main cause of slow app loads.
+
 **For the AI agent**
 
 - Prefer adding or editing a single logical area per change (component, route, util).
