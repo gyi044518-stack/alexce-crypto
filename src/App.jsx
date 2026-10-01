@@ -113,11 +113,13 @@ uiTranslations.th = {
 
 function TradingViewChart({ symbol, interval, darkMode }) {
   const chartContainerRef = useRef(null);
+  const [chartUnavailable, setChartUnavailable] = useState(false);
 
   useEffect(() => {
     const chartContainer = chartContainerRef.current;
     if (!chartContainer) return undefined;
 
+    setChartUnavailable(false);
     chartContainer.innerHTML = '';
     const chartWidget = document.createElement('div');
     chartWidget.className = 'tradingview-widget-container__widget';
@@ -142,69 +144,40 @@ function TradingViewChart({ symbol, interval, darkMode }) {
       calendar: false,
       support_host: 'https://www.tradingview.com',
     });
+    widgetScript.onerror = () => setChartUnavailable(true);
     chartContainer.appendChild(widgetScript);
 
     return () => {
+      widgetScript.onerror = null;
       chartContainer.innerHTML = '';
     };
   }, [symbol, interval, darkMode]);
 
-  return <div ref={chartContainerRef} className="tradingview-widget-container h-full w-full" />;
-}
-
-function AlignedCryptoChart({ symbol, interval, darkMode, currentPrice, entryPrice, side }) {
-  const [candles, setCandles] = useState([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadCandles = async () => {
-      try {
-        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}USDT&interval=${interval}&limit=80`);
-        if (!response.ok) throw new Error('Kline unavailable');
-        const rows = await response.json();
-        if (!cancelled) setCandles(rows.map((row) => ({ open: Number(row[1]), high: Number(row[2]), low: Number(row[3]), close: Number(row[4]) })));
-      } catch {
-        if (!cancelled) setCandles([]);
-      }
-    };
-    loadCandles();
-    const refresh = setInterval(loadCandles, 5000);
-    return () => { cancelled = true; clearInterval(refresh); };
-  }, [symbol, interval]);
-
-  const fallbackCandles = Array.from({ length: 48 }, (_, index) => {
-    const center = currentPrice || 1;
-    const open = center * (1 + Math.sin(index * 0.7) * 0.004);
-    const close = center * (1 + Math.sin((index + 1) * 0.7) * 0.004);
-    return { open, close, high: Math.max(open, close) * 1.002, low: Math.min(open, close) * 0.998 };
-  });
-  const chartCandles = candles.length ? candles : fallbackCandles;
-  const values = chartCandles.flatMap((candle) => [candle.high, candle.low]).concat([currentPrice || 0, entryPrice || 0]);
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  const padding = Math.max((maximum - minimum) * 0.08, (currentPrice || 1) * 0.001);
-  const chartMin = minimum - padding;
-  const chartMax = maximum + padding;
-  const y = (price) => 12 + ((chartMax - price) / Math.max(chartMax - chartMin, 0.000001)) * 210;
-  const xStep = 760 / Math.max(chartCandles.length - 1, 1);
-
-  return <div className="relative h-full w-full">
-    <svg viewBox="0 0 800 250" preserveAspectRatio="none" className="h-full w-full">
-      {[0, 1, 2, 3, 4].map((line) => <line key={line} x1="0" x2="800" y1={12 + line * 52} y2={12 + line * 52} stroke={darkMode ? '#1e293b' : '#e2e8f0'} strokeWidth="1" />)}
-      {chartCandles.map((candle, index) => {
-        const x = 20 + index * xStep;
-        const bullish = candle.close >= candle.open;
-        const color = bullish ? '#10b981' : '#f43f5e';
-        const bodyTop = y(Math.max(candle.open, candle.close));
-        const bodyHeight = Math.max(2, Math.abs(y(candle.open) - y(candle.close)));
-        return <g key={`${symbol}-${index}`}><line x1={x} x2={x} y1={y(candle.high)} y2={y(candle.low)} stroke={color} strokeWidth="1.5" /><rect x={x - 3} y={bodyTop} width="6" height={bodyHeight} fill={color} /></g>;
-      })}
-      {currentPrice > 0 && <><line x1="0" x2="800" y1={y(currentPrice)} y2={y(currentPrice)} stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="5 4" /><text x="8" y={Math.max(12, y(currentPrice) - 5)} fill="#38bdf8" fontSize="10">LIVE {currentPrice.toFixed(currentPrice < 1 ? 6 : 2)}</text></>}
-      {entryPrice > 0 && <><line x1="0" x2="800" y1={y(entryPrice)} y2={y(entryPrice)} stroke={side === 'short' || side === 'sell' ? '#fb7185' : '#fbbf24'} strokeWidth="2" strokeDasharray="8 5" /><text x="8" y={Math.min(240, y(entryPrice) + 13)} fill={side === 'short' || side === 'sell' ? '#fb7185' : '#fbbf24'} fontSize="10">ENTRY {entryPrice.toFixed(entryPrice < 1 ? 6 : 2)}</text></>}
-    </svg>
-    <span className="absolute bottom-2 right-3 text-[10px] opacity-50">Binance live candles · {interval}</span>
+  return <div className="relative h-full min-h-0 w-full">
+    <div ref={chartContainerRef} className="tradingview-widget-container h-full min-h-0 w-full" />
+    {chartUnavailable && <div className={`absolute inset-0 flex items-center justify-center text-xs ${darkMode ? 'bg-slate-950 text-slate-400' : 'bg-slate-50 text-slate-600'}`}>Chart unavailable for this symbol</div>}
   </div>;
 }
+
+function getTradeChartSymbol(selectedSymbol, tradeMode) {
+  const symbol = String(selectedSymbol || '').trim().toUpperCase();
+  if (tradeMode === 'TradFi') return tradingViewSymbols[symbol] || tradingViewSymbols.EURUSD;
+
+  const underlying = symbol.split('/')[0].replace(/[^A-Z0-9]/g, '');
+  if (!underlying || underlying === 'USDT') return tradingViewSymbols.BTC;
+  const mappedSymbol = tradingViewSymbols[underlying];
+  return mappedSymbol?.startsWith('BINANCE:') ? mappedSymbol : `BINANCE:${underlying}USDT`;
+}
+
+const tradingViewIntervals = {
+  '1m': '1',
+  '3m': '3',
+  '5m': '5',
+  '15m': '15',
+  '1h': '60',
+  '4h': '240',
+  '1D': 'D',
+};
 
 function AlexceLogo() {
   return (
@@ -546,6 +519,29 @@ export default function App() {
   const activeTradFiPosition = tradFiPositions.find((position) => position.symbol === selectedTradeSymbol);
   const activeFuturesPosition = futuresPositions.find((position) => position.symbol === selectedTradeSymbol);
   const activeSpotOrder = tradeOrders.find((order) => order.symbol === selectedTradeSymbol);
+  const activeChartTrade = tradeMode === 'TradFi'
+    ? activeTradFiPosition
+    : tradeMode === 'Futures'
+      ? activeFuturesPosition
+      : activeSpotOrder;
+  const chartMarkPrice = getLivePrice(selectedTradeSymbol) || selectedTradeCoin.price;
+  const chartEntryPrice = activeChartTrade?.entryPrice ?? activeChartTrade?.price;
+  const chartTradeSide = activeChartTrade?.side;
+  const chartTradeQuantity = tradeMode === 'Futures'
+    ? activeChartTrade?.quantity
+    : tradeMode === 'TradFi'
+      ? activeChartTrade?.size
+      : activeChartTrade?.quantity;
+  const chartPnl = activeChartTrade
+    ? ((chartTradeSide === 'long' || chartTradeSide === 'buy' ? 1 : -1) * (chartMarkPrice - chartEntryPrice) * chartTradeQuantity)
+    : null;
+  const chartPnlCapital = tradeMode === 'Futures'
+    ? activeChartTrade?.margin
+    : tradeMode === 'TradFi'
+      ? chartEntryPrice * chartTradeQuantity
+      : activeChartTrade?.amount;
+  const chartPnlPercent = chartPnl !== null && chartPnlCapital > 0 ? (chartPnl / chartPnlCapital) * 100 : 0;
+  const chartPnlBarWidth = Math.min(Math.abs(chartPnlPercent) * 2.5, 50);
 
   const handleTrade = (e) => {
     e.preventDefault();
@@ -1163,14 +1159,15 @@ export default function App() {
 
             <div className={`flex gap-1 overflow-x-auto border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'} pb-2`}>
               {['TradFi', 'Spot', 'Futures', 'Crypto Market', 'Options', 'Alpha', 'Convert'].map((mode) => (
-                <button key={mode} type="button" onClick={() => { setTradeMode(mode); setTradeNotice(''); if (mode === 'TradFi') setSelectedTradeSymbol('EURUSD'); else if (mode === 'Spot' || mode === 'Futures' || mode === 'Crypto Market') setSelectedTradeSymbol('BTC'); }} className={`shrink-0 px-4 py-2.5 rounded-xl text-xs font-bold transition ${tradeMode === mode ? 'bg-cyan-600 text-white shadow-lg' : darkMode ? 'text-slate-400 hover:bg-slate-800 hover:text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+                <button key={mode} type="button" onClick={() => { setTradeMode(mode); setTradeNotice(''); setSelectedTradeSymbol(mode === 'TradFi' ? 'EURUSD' : mode === 'Alpha' ? 'ETH' : mode === 'Convert' ? 'SOL' : 'BTC'); }} className={`shrink-0 px-4 py-2.5 rounded-xl text-xs font-bold transition ${tradeMode === mode ? 'bg-cyan-600 text-white shadow-lg' : darkMode ? 'text-slate-400 hover:bg-slate-800 hover:text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
                   {mode}
                 </button>
               ))}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] gap-5 items-start">
-              {['TradFi', 'Spot', 'Futures', 'Crypto Market'].includes(tradeMode) && <div className={`${darkMode ? 'bg-[#12161f] border-slate-800' : 'bg-white border-slate-200'} border rounded-3xl p-4 sm:p-5 shadow-xl`}>
+              <div className="space-y-5">
+              <div className={`${darkMode ? 'bg-[#12161f] border-slate-800' : 'bg-white border-slate-200'} border rounded-3xl p-4 sm:p-5 shadow-xl`}>
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                   <div className="flex items-center gap-3">
                     <select value={selectedTradeSymbol} onChange={(e) => setSelectedTradeSymbol(e.target.value)} className={`${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'} border rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:border-cyan-500`}>
@@ -1191,18 +1188,26 @@ export default function App() {
                       {chartExpanded ? 'Exit view' : 'Expand chart'}
                     </button>
                   </div>
-                  {tradeMode === 'TradFi' ? <TradingViewChart symbol={tradingViewSymbols[selectedTradeSymbol] || 'FX:EURUSD'} interval={selectedTimeframe === '1D' ? 'D' : selectedTimeframe === '1h' ? '60' : selectedTimeframe === '4h' ? '240' : selectedTimeframe.replace('m', '')} darkMode={darkMode} /> : <AlignedCryptoChart symbol={selectedTradeSymbol} interval={selectedTimeframe === '1D' ? '1d' : selectedTimeframe === '1h' ? '1h' : selectedTimeframe === '4h' ? '4h' : selectedTimeframe === '2m' ? '1m' : selectedTimeframe} darkMode={darkMode} currentPrice={selectedTradeCoin.price} entryPrice={activeFuturesPosition?.entryPrice || activeSpotOrder?.price} side={activeFuturesPosition?.side || activeSpotOrder?.side} />}
-                  {tradeMode === 'TradFi' && activeTradFiPosition && <div className="absolute left-0 right-0 top-1/2 border-t-2 border-dashed border-amber-400 pointer-events-none"><span className="absolute right-3 -top-6 rounded-md bg-amber-500 px-2 py-1 text-[10px] font-bold text-slate-950">Entry {activeTradFiPosition.entryPrice.toFixed(4)}</span></div>}
+                  <TradingViewChart symbol={getTradeChartSymbol(selectedTradeSymbol, tradeMode)} interval={tradingViewIntervals[selectedTimeframe] || '1'} darkMode={darkMode} />
+                  {activeChartTrade && <div className={`absolute left-3 top-3 z-10 w-52 rounded-lg border p-3 shadow-lg backdrop-blur-sm ${darkMode ? 'bg-slate-950/90 border-slate-700' : 'bg-white/90 border-slate-200'}`}>
+                    <div className="flex items-center justify-between gap-2 text-[10px] uppercase opacity-60"><span>{chartTradeSide} · {selectedTradeSymbol}</span><span>{chartPnlPercent >= 0 ? '+' : ''}{chartPnlPercent.toFixed(2)}%</span></div>
+                    <div className={`mt-1 text-sm font-black tabular-nums ${chartPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chartPnl >= 0 ? '+' : '-'}${Math.abs(chartPnl).toFixed(tradeMode === 'TradFi' ? 4 : 2)} PnL</div>
+                    <div className={`relative mt-2 h-1.5 overflow-hidden rounded-full ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                      <span className="absolute left-1/2 top-0 h-full w-px bg-slate-400" />
+                      <span className={`absolute top-0 h-full ${chartPnl >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ left: chartPnl >= 0 ? '50%' : `${50 - chartPnlBarWidth}%`, width: `${chartPnlBarWidth}%` }} />
+                    </div>
+                    <div className="mt-2 flex justify-between gap-2 text-[10px] tabular-nums opacity-60"><span>Entry ${chartEntryPrice.toLocaleString()}</span><span>Mark ${chartMarkPrice.toLocaleString()}</span></div>
+                  </div>}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 mt-3">
-                  {['1m', '2m', '5m', '15m', '1h', '4h', '1D'].map((timeframe) => (
+                  {['1m', '3m', '5m', '15m', '1h', '4h', '1D'].map((timeframe) => (
                     <button key={timeframe} type="button" onClick={() => setSelectedTimeframe(timeframe)} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${selectedTimeframe === timeframe ? 'bg-cyan-600 text-white' : darkMode ? 'bg-slate-900 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:text-slate-900'}`}>
                       {timeframe}
                     </button>
                   ))}
                   <span className="ml-auto text-[10px] opacity-50">Live from TradingView</span>
                 </div>
-              </div>}
+              </div>
 
               {tradeMode === 'Options' && <div className={`${darkMode ? 'bg-[#12161f] border-slate-800' : 'bg-white border-slate-200'} border rounded-3xl p-5 shadow-xl space-y-5`}>
                 <div><h3 className="text-lg font-black text-amber-400">Options Market</h3><p className="text-xs opacity-60 mt-1">Choose an options contract for {selectedTradeCoin.symbol}.</p></div>
@@ -1224,6 +1229,7 @@ export default function App() {
                 <label className="block text-xs opacity-70">Asset pair<select className={`w-full mt-1 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-300'} border rounded-xl px-4 py-3 text-sm`}><option>USDT → {selectedTradeCoin.symbol}</option><option>{selectedTradeCoin.symbol} → USDT</option></select></label>
                 <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-xs text-cyan-300">Live conversion quote will be supplied by the exchange API.</div>
               </div>}
+              </div>
 
               <form onSubmit={handleTrade} className={`${darkMode ? 'bg-[#12161f] border-slate-800' : 'bg-white border-slate-200'} border rounded-3xl p-5 shadow-xl space-y-5`}>
                 <div className="flex items-center justify-between">
