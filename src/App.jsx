@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const tradingViewSymbols = {
   BTC: 'BINANCE:BTCUSDT',
@@ -2007,6 +2008,7 @@ export default function App() {
         <p className="mt-6 text-center text-xs opacity-60">© 2026 ALEXCE Exchange Platform. All rights reserved.</p>
       </footer>
       <Analytics />
+      <SpeedInsights />
     </div>
   );
 }
